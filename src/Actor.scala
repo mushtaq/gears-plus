@@ -2,7 +2,7 @@ package gears.async.actors
 
 import gears.async.*
 import java.util.concurrent.atomic.AtomicReference
-import scala.util.{Try, Success, Failure}
+import scala.util.{Success, Failure}
 import scala.util.control.NonFatal
 
 // Custom exception types
@@ -97,7 +97,7 @@ class ActorRef[T] private[actors] (
       pendingPromises.updateAndGet(_ - promise)
       result
     catch
-      case e: ChannelClosedException =>
+      case _: ChannelClosedException =>
         // Remove promise if channel closed
         pendingPromises.updateAndGet(_ - promise)
         throw ActorTerminatedException(s"Actor '$name' channel is closed")

@@ -43,7 +43,7 @@ object ActorTest extends TestSuite:
         val actor = Actor.create(counter)
         
         // Launch multiple concurrent operations
-        val futures = (1 to 10).map: i =>
+        val futures = (1 to 10).map: _ =>
           Future:
             actor.ask(_.increment(1))
         
@@ -197,7 +197,7 @@ object ActorTest extends TestSuite:
             actor.ask(_.increment(i))
         
         // All should complete successfully despite buffer size
-        val results = Future.awaitAll(futures)
+        Future.awaitAll(futures)
         // Results are cumulative: 1, 1+2=3, 3+3=6, 6+4=10, 10+5=15
         // But order may vary due to concurrency, so just check final value
         val finalValue = actor.ask(_.getValue())
