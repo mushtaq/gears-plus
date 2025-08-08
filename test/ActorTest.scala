@@ -1,5 +1,6 @@
+package gears.async.actors
+
 import gears.async.*
-import gears.async.actors.*
 import gears.async.default.given
 import utest.*
 
@@ -138,5 +139,102 @@ object ActorTest extends TestSuite:
             // Expected - actor was terminated when scope ended
           case _: ChannelClosedException =>
             // Also acceptable - channel closed
+    
+    test("Pending promises cleanup on cancellation"):
+      Async.blocking:
+        val counter = Counter()
+        val actor = Actor.create(counter, "cleanup-test")
+        
+        // Start a slow operation in a separate future
+        val pendingFuture = Future:
+          try
+            actor.ask: c =>
+              Thread.sleep(100) // Intentionally blocking to ensure operation is in-progress when cancelled
+              c.increment(10)
+            assert(false) // Should not reach here
+          catch
+            case e: ActorTerminatedException =>
+              // Expected - actor was cancelled while operation was pending
+              assert(e.getMessage.contains("cleanup-test"))
+              assert(e.getMessage.contains("cancelled"))
+        
+        // Give the ask some time to be sent to the actor
+        // Using Thread.sleep here because we need to ensure timing outside async context
+        Thread.sleep(20)
+        
+        // Cancel the actor while the operation is in progress
+        actor.cancel()
+        
+        // The pending future should fail with ActorTerminatedException
+        pendingFuture.await
+    
+    test("Cleanup callback on termination"):
+      Async.blocking:
+        var cleanupCalled = false
+        val counter = Counter()
+        
+        Async.group:
+          val actor = Actor.create(
+            counter,
+            name = "cleanup-actor",
+            close = Some(_ => cleanupCalled = true)
+          )
+          
+          actor.ask(_.increment(5))
+        // Scope ends, actor should be terminated and cleanup called
+        
+        assert(cleanupCalled)
+    
+    test("Buffered channel backpressure"):
+      Async.blocking:
+        val counter = Counter()
+        // Create actor with small buffer
+        val actor = Actor.create(counter, bufferSize = Some(2))
+        
+        // Send multiple operations concurrently
+        val futures = (1 to 5).map: i =>
+          Future:
+            actor.ask(_.increment(i))
+        
+        // All should complete successfully despite buffer size
+        val results = Future.awaitAll(futures)
+        // Results are cumulative: 1, 1+2=3, 3+3=6, 6+4=10, 10+5=15
+        // But order may vary due to concurrency, so just check final value
+        val finalValue = actor.ask(_.getValue())
+        assert(finalValue == 15) // 1+2+3+4+5
+    
+    test("Actor serializes operations"):
+      Async.blocking:
+        var executionStartTimes = List.empty[Long]
+        var executionEndTimes = List.empty[Long]
+        
+        class OrderTracker:
+          def slowOperation(n: Int): Int =
+            executionStartTimes = executionStartTimes :+ System.nanoTime()
+            Thread.sleep(10) // Intentionally blocking to verify true serialization
+            executionEndTimes = executionEndTimes :+ System.nanoTime()
+            n
+        
+        val tracker = OrderTracker()
+        val actor = Actor.create(tracker)
+        
+        // Send operations concurrently
+        val futures = (1 to 3).map: i =>
+          Future:
+            actor.ask(_.slowOperation(i))
+        
+        // Wait for all to complete
+        val results = Future.awaitAll(futures)
+        
+        // Verify all operations completed
+        assert(results.toSet == Set(1, 2, 3))
+        
+        // Verify operations were serialized (no overlap in execution)
+        // Each operation should start after the previous one ended
+        for i <- 1 until executionStartTimes.length do
+          assert(executionStartTimes(i) >= executionEndTimes(i - 1))
+        
+        assert(executionStartTimes.length == 3)
+        assert(executionEndTimes.length == 3)
 
 
