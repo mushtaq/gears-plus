@@ -5,18 +5,34 @@ import java.util.concurrent.atomic.AtomicReference
 import scala.util.{Success, Failure}
 import scala.util.control.NonFatal
 
-// Custom exception types
+/** Exception thrown when attempting to interact with a terminated actor.
+  * 
+  * This can occur when:
+  * - The actor was explicitly cancelled via `cancel()`
+  * - The actor's scope ended (structured concurrency)
+  * - A fatal exception terminated the actor
+  */
 class ActorTerminatedException(message: String) extends Exception(message)
 
 object Actor:
   /** Creates a new actor that protects a mutable resource and processes invocations serially.
     * 
     * The actor runs as a Future in the current Async.Spawn scope and will automatically
-    * stop when the scope ends (structured concurrency).
+    * stop when the scope ends (structured concurrency). All operations sent to the actor
+    * are executed sequentially, ensuring thread-safe access to the mutable state.
     * 
-    * @param logic The mutable state to protect
-    * @param bufferSize Optional buffer size for the actor's mailbox (default: unbounded)
+    * @param logic The mutable state to protect from concurrent access
+    * @param name A descriptive name for the actor (used in error messages for debugging)
+    * @param bufferSize Optional buffer size for the actor's mailbox (default: unbounded).
+    *                   Use Some(n) to limit pending requests and apply backpressure.
+    * @param close Optional cleanup function called when the actor terminates.
+    *              Useful for releasing resources. Exceptions in cleanup are ignored.
     * @return An ActorRef that can be used to send messages to the actor
+    * @example {{{
+    *   val counter = Counter()
+    *   val actor = Actor.create(counter, name = "counter", bufferSize = Some(100))
+    *   val result = actor.ask(_.increment(5))
+    * }}}
     */
   def create[T](
     logic: T, 
@@ -57,6 +73,14 @@ object Actor:
     ActorRef(name, channel, future, pendingPromises)
 
 /** A reference to an actor that can be used to send messages via the ask pattern.
+  * 
+  * ActorRef is the handle through which you interact with an actor. It provides:
+  * - Thread-safe ask pattern for request-response communication
+  * - Cancellation support to terminate the actor
+  * - Integration with Gears' cancellation groups
+  * 
+  * The actor guarantees that all operations are processed sequentially,
+  * preventing race conditions on the protected mutable state.
   * 
   * @param T The type of the actor's internal state
   */

@@ -47,3 +47,8 @@ build/
 .bsp/
 .scala-build/
 .idea
+.metals/
+.bloop/
+metals.sbt
+*.class
+*.log

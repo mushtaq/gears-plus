@@ -5,7 +5,7 @@ import gears.async.default.given
 import utest.*
 
 // Test state class
-class Counter:
+private class TestCounter:
   private var count = 0
   
   def increment(n: Int): Int =
@@ -25,7 +25,7 @@ object ActorTest extends TestSuite:
   val tests = Tests:
     test("Basic ask pattern"):
       Async.blocking:
-        val counter = Counter()
+        val counter = TestCounter()
         val actor = Actor.create(counter)
         
         val result1 = actor.ask(_.increment(5))
@@ -39,7 +39,7 @@ object ActorTest extends TestSuite:
 
     test("Concurrent ask calls"):
       Async.blocking:
-        val counter = Counter()
+        val counter = TestCounter()
         val actor = Actor.create(counter)
         
         // Launch multiple concurrent operations
@@ -60,7 +60,7 @@ object ActorTest extends TestSuite:
 
     test("Error handling in ask"):
       Async.blocking:
-        val counter = Counter()
+        val counter = TestCounter()
         val actor = Actor.create(counter)
         
         // First operation succeeds
@@ -81,7 +81,7 @@ object ActorTest extends TestSuite:
 
     test("Actor cancellation"):
       Async.blocking:
-        val counter = Counter()
+        val counter = TestCounter()
         val actor = Actor.create(counter)
         
         val result1 = actor.ask(_.increment(5))
@@ -100,7 +100,7 @@ object ActorTest extends TestSuite:
 
     test("Actor names in error messages"):
       Async.blocking:
-        val counter = Counter()
+        val counter = TestCounter()
         val actor = Actor.create(counter, "named-actor")
         
         // Cancel the actor
@@ -117,11 +117,11 @@ object ActorTest extends TestSuite:
             assert(e.getMessage.contains("channel is closed"))
 
     test("Structured concurrency"):
-      var actorRef: Option[ActorRef[Counter]] = None
+      var actorRef: Option[ActorRef[TestCounter]] = None
       
       Async.blocking:
         Async.group:
-          val counter = Counter()
+          val counter = TestCounter()
           val actor = Actor.create(counter)
           actorRef = Some(actor)
           
@@ -142,7 +142,7 @@ object ActorTest extends TestSuite:
     
     test("Pending promises cleanup on cancellation"):
       Async.blocking:
-        val counter = Counter()
+        val counter = TestCounter()
         val actor = Actor.create(counter, "cleanup-test")
         
         // Start a slow operation in a separate future
@@ -171,7 +171,7 @@ object ActorTest extends TestSuite:
     test("Cleanup callback on termination"):
       Async.blocking:
         var cleanupCalled = false
-        val counter = Counter()
+        val counter = TestCounter()
         
         Async.group:
           val actor = Actor.create(
@@ -187,7 +187,7 @@ object ActorTest extends TestSuite:
     
     test("Buffered channel backpressure"):
       Async.blocking:
-        val counter = Counter()
+        val counter = TestCounter()
         // Create actor with small buffer
         val actor = Actor.create(counter, bufferSize = Some(2))
         
@@ -237,4 +237,68 @@ object ActorTest extends TestSuite:
         assert(executionStartTimes.length == 3)
         assert(executionEndTimes.length == 3)
 
+    test("Multiple actors can run independently"):
+      Async.blocking:
+        val counter1 = TestCounter()
+        val counter2 = TestCounter()
+        val actor1 = Actor.create(counter1, "actor1")
+        val actor2 = Actor.create(counter2, "actor2")
+        
+        // Send operations to both actors concurrently
+        val futures = List(
+          Future(actor1.ask(_.increment(10))),
+          Future(actor2.ask(_.increment(20))),
+          Future(actor1.ask(_.increment(5))),
+          Future(actor2.ask(_.increment(3)))
+        )
+        
+        Future.awaitAll(futures)
+        
+        // Each actor should have its own state
+        assert(actor1.ask(_.getValue()) == 15)
+        assert(actor2.ask(_.getValue()) == 23)
 
+    test("Actor link and unlink with completion group"):
+      Async.blocking:
+        val counter = TestCounter()
+        val actor = Actor.create(counter)
+        val group = CompletionGroup()
+        
+        // Link actor to group
+        actor.link(group)
+        
+        // Use the actor
+        assert(actor.ask(_.increment(5)) == 5)
+        
+        // Unlink from group
+        actor.unlink()
+        
+        // Cancel the group (should not affect unlinked actor)
+        group.cancel()
+        
+        // Actor should still work after group cancellation
+        assert(actor.ask(_.increment(3)) == 8)
+        
+        // Clean up
+        actor.cancel()
+
+    test("Cleanup callback errors are ignored"):
+      Async.blocking:
+        val counter = TestCounter()
+        var cleanupCalled = false
+        
+        Async.group:
+          val actor = Actor.create(
+            counter,
+            name = "error-cleanup-actor",
+            close = Some { _ =>
+              cleanupCalled = true
+              throw new RuntimeException("Cleanup error")
+            }
+          )
+          
+          actor.ask(_.increment(5))
+        // Scope ends, cleanup throws but should be ignored
+        
+        assert(cleanupCalled)
+        // Test passes if we reach here despite cleanup exception
