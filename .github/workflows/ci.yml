@@ -1,0 +1,40 @@
+name: CI
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Setup Java
+      uses: actions/setup-java@v4
+      with:
+        distribution: 'temurin'
+        java-version: 21
+    
+    - name: Setup Scala-CLI
+      uses: VirtusLab/scala-cli-setup@v1
+      with:
+        power: true
+    
+    - name: Compile
+      run: scala-cli compile . --server=false
+    
+    - name: Test
+      run: scala-cli test . --server=false
+    
+    - name: Check formatting
+      run: scala-cli fmt --check . --server=false
+    
+    - name: Compile with warnings as errors
+      run: scala-cli compile . -O -Werror --server=false
+    
+    - name: Package
+      run: scala-cli package . --server=false
