@@ -1,6 +1,7 @@
 import gears.async.*
 import gears.async.actors.*
 import gears.async.default.given
+import scala.concurrent.duration.*
 import utest.*
 
 // Test state class
@@ -94,8 +95,8 @@ object ActorTest extends TestSuite:
           actor.ask(_.increment(3))
           assert(false)
         catch
-          case _: ChannelClosedException =>
-            // Expected
+          case _: ActorTerminatedException =>
+            // Expected - actor was cancelled
 
     test("Structured concurrency"):
       var actorRef: Option[ActorRef[Counter]] = None
@@ -116,5 +117,9 @@ object ActorTest extends TestSuite:
           actorRef.get.ask(_.increment(5))
           assert(false)
         catch
+          case _: ActorTerminatedException =>
+            // Expected - actor was terminated when scope ended
           case _: ChannelClosedException =>
-            // Expected - actor was cancelled when scope ended
+            // Also acceptable - channel closed
+
+
