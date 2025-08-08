@@ -1,7 +1,6 @@
 import gears.async.*
 import gears.async.actors.*
 import gears.async.default.given
-import scala.concurrent.duration.*
 import utest.*
 
 // Test state class
@@ -97,6 +96,24 @@ object ActorTest extends TestSuite:
         catch
           case _: ActorTerminatedException =>
             // Expected - actor was cancelled
+
+    test("Actor names in error messages"):
+      Async.blocking:
+        val counter = Counter()
+        val actor = Actor.create(counter, "named-actor")
+        
+        // Cancel the actor
+        actor.cancel()
+        
+        // Try to use cancelled actor
+        try
+          actor.ask(_.increment(1))
+          assert(false)
+        catch
+          case e: ActorTerminatedException =>
+            // Error message should include actor name
+            assert(e.getMessage.contains("named-actor"))
+            assert(e.getMessage.contains("channel is closed"))
 
     test("Structured concurrency"):
       var actorRef: Option[ActorRef[Counter]] = None

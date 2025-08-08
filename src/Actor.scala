@@ -6,7 +6,6 @@ import scala.util.{Try, Success, Failure}
 import scala.util.control.NonFatal
 
 // Custom exception types
-class AskTimeoutException(message: String) extends Exception(message)
 class ActorTerminatedException(message: String) extends Exception(message)
 
 object Actor:
@@ -19,7 +18,12 @@ object Actor:
     * @param bufferSize Optional buffer size for the actor's mailbox (default: unbounded)
     * @return An ActorRef that can be used to send messages to the actor
     */
-  def create[T](logic: T, bufferSize: Option[Int] = None, close: Option[T => Unit] = None)(using Async.Spawn): ActorRef[T] =
+  def create[T](
+    logic: T, 
+    name: String = "unnamed",
+    bufferSize: Option[Int] = None, 
+    close: Option[T => Unit] = None
+  )(using Async.Spawn): ActorRef[T] =
     val channel: Channel[Message[T, ?]] = bufferSize match
       case Some(size) => BufferedChannel(size)
       case None => UnboundedChannel()
@@ -41,7 +45,7 @@ object Actor:
         val promises = pendingPromises.getAndSet(Set.empty)
         promises.foreach: promise =>
           promise.asInstanceOf[Future.Promise[Any]].complete(
-            Failure(ActorTerminatedException("Actor has been terminated"))
+            Failure(ActorTerminatedException(s"Actor '$name' has been terminated"))
           )
         
         // Close channel and run cleanup
@@ -50,13 +54,14 @@ object Actor:
           try cleanup(logic)
           catch case NonFatal(_) => () // ignore cleanup errors
     
-    ActorRef(channel, future, pendingPromises)
+    ActorRef(name, channel, future, pendingPromises)
 
 /** A reference to an actor that can be used to send messages via the ask pattern.
   * 
   * @param T The type of the actor's internal state
   */
 class ActorRef[T] private[actors] (
+  val name: String,
   private val channel: Channel[Message[T, ?]], 
   private val future: Future[Unit],
   private val pendingPromises: AtomicReference[Set[Future.Promise[?]]]
@@ -87,7 +92,6 @@ class ActorRef[T] private[actors] (
     try
       channel.send(msg.asInstanceOf[Message[T, ?]])
       
-      // await directly returns U, not Try[U] in Gears
       val result = promise.asFuture.await
       // Remove promise on completion
       pendingPromises.updateAndGet(_ - promise)
@@ -96,7 +100,7 @@ class ActorRef[T] private[actors] (
       case e: ChannelClosedException =>
         // Remove promise if channel closed
         pendingPromises.updateAndGet(_ - promise)
-        throw ActorTerminatedException("Actor channel is closed")
+        throw ActorTerminatedException(s"Actor '$name' channel is closed")
   
   /** Cancel the actor, closing its channel and cancelling its future. */
   def cancel(): Unit =
@@ -104,7 +108,7 @@ class ActorRef[T] private[actors] (
     val promises = pendingPromises.getAndSet(Set.empty)
     promises.foreach: promise =>
       promise.asInstanceOf[Future.Promise[Any]].complete(
-        Failure(ActorTerminatedException("Actor was cancelled"))
+        Failure(ActorTerminatedException(s"Actor '$name' was cancelled"))
       )
     
     channel.close()
