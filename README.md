@@ -2,11 +2,17 @@
 
 Additional utilities for the [Gears](https://github.com/lampepfl/gears) async library, providing higher-level concurrency abstractions built on top of Gears' lightweight async runtime.
 
+## Features
+
+- **Actors**: Type-safe, ask-only actors for managing mutable state
+- **DST (Deterministic Simulation Testing)**: Virtual time control for testing async code
+
 ## Installation
 
 ```scala
 //> using dep "ch.epfl.lamp::gears:0.2.0"
 //> using file "src/Actor.scala"
+//> using file "src/dst/*.scala"  // For DST support
 ```
 
 ## Quick Start
@@ -138,6 +144,87 @@ Async.blocking:
 ```
 
 All examples are tested in [test/ActorExamplesTest.scala](test/ActorExamplesTest.scala).
+
+## Deterministic Simulation Testing (DST)
+
+DST provides virtual time control for testing time-dependent async code deterministically. Time only advances when explicitly instructed, making tests fast and reproducible.
+
+### Basic Usage
+
+```scala
+import gears.async.*
+import gears.async.dst.DST
+import gears.async.dst.DST.given
+import scala.concurrent.duration.*
+
+DST.withVirtualTime:
+  var completed = false
+  
+  Future:
+    AsyncOperations.sleep(100.millis)
+    completed = true
+  
+  assert(!completed)       // Future hasn't completed yet
+  DST.advance(100.millis)  // Advance virtual time
+  assert(completed)        // Now it's done instantly
+```
+
+### DST API
+
+- `DST.withVirtualTime[T](body: Async.Spawn ?=> T): T` - Creates a test context with virtual time
+- `DST.advance(duration: FiniteDuration)` - Advances virtual time by the specified duration
+- `DST.nowMillis: Long` - Returns the current virtual time in milliseconds
+
+### Testing Time-Dependent Code
+
+```scala
+DST.withVirtualTime:
+  val timer = Timer(1.second)
+  var ticks = 0
+  
+  Future:
+    timer.run()
+  
+  timer.src.onComplete: _ =>
+    ticks += 1
+  
+  DST.advance(500.millis)
+  assert(ticks == 0)  // Not enough time passed
+  
+  DST.advance(500.millis)
+  assert(ticks == 1)  // Timer fired after 1 second
+  
+  DST.advance(2.seconds)
+  assert(ticks == 3)  // Timer fired 2 more times
+```
+
+### Testing Actors with DST
+
+```scala
+DST.withVirtualTime:
+  val actor = Actor.create(RateLimitedService())
+  
+  // Schedule multiple operations
+  val f1 = Future(actor.ask(_.process("request1")))
+  val f2 = Future.delay(100.millis)(actor.ask(_.process("request2")))
+  
+  // Nothing happens until time advances
+  assert(!f1.poll().isDefined)
+  
+  DST.advance(50.millis)
+  assert(f1.poll().isDefined)   // First request completes
+  assert(!f2.poll().isDefined)  // Second still waiting
+  
+  DST.advance(50.millis)
+  assert(f2.poll().isDefined)   // Second request completes
+```
+
+### Key Benefits
+
+- **Deterministic**: Same time advancements always produce same results
+- **Fast**: No actual waiting - tests complete instantly
+- **Precise**: Control time with millisecond precision
+- **Isolated**: Each test starts with time at 0
 
 ## Design Philosophy
 
