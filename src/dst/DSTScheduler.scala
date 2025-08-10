@@ -11,7 +11,7 @@ import scala.collection.mutable
   * Tasks scheduled for future execution are queued and only run when virtual
   * time is advanced past their scheduled time.
   */
-object DSTScheduler extends Scheduler:
+class DSTScheduler extends Scheduler:
   private case class Task(at: Long, body: Runnable, var cancelled: Boolean = false)
   private given Ordering[Task] = Ordering.by[Task, Long](_.at).reverse // min-heap
   
@@ -67,3 +67,4 @@ object DSTScheduler extends Scheduler:
     currentTimeMillis = 0L
     queue.clear()
     readyQueue.clear()
+    draining = false

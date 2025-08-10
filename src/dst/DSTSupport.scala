@@ -1,6 +1,8 @@
 package gears.async.dst
 
-import gears.async.{AsyncSupport, VThreadSupport}
+import gears.async.{AsyncSupport, VThreadScheduler, VThreadSupport}
+
+import scala.util.boundary.Label
 
 /** AsyncSupport implementation that binds Gears' async machinery to DSTScheduler.
   * 
@@ -11,7 +13,7 @@ import gears.async.{AsyncSupport, VThreadSupport}
   * - Ensuring boundaries are scheduled through our virtual scheduler
   */
 object DSTSupport extends AsyncSupport:
-  type Scheduler = DSTScheduler.type
+  type Scheduler = DSTScheduler
   
   // Delegate suspension mechanics to VThreadSupport
   type Label[R] = VThreadSupport.Label[R]
@@ -24,4 +26,4 @@ object DSTSupport extends AsyncSupport:
     VThreadSupport.suspend(body)
     
   override def scheduleBoundary(body: Label[Unit] ?=> Unit)(using sch: Scheduler): Unit =
-    sch.execute(() => boundary(body))
+    VThreadScheduler.execute(() => boundary(body))

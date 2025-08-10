@@ -1,7 +1,8 @@
 package gears.async.dst
 
 import gears.async.*
-import scala.concurrent.duration.*
+
+import scala.concurrent.duration.FiniteDuration
 
 /** Main API for Deterministic Simulation Testing with Gears.
   * 
@@ -21,14 +22,29 @@ import scala.concurrent.duration.*
   * ```
   */
 object DST:
-  export DSTScheduler.{advance, nowMillis}
-  /** Creates a test context with virtual time control.
-    * Automatically resets the scheduler for test isolation.
+  /** Advances virtual time by the specified duration.
+    * This is a convenience method for use within withVirtualTime context.
     */
-  def withVirtualTime[T](body: (Async.Spawn, AsyncOperations) ?=> T): T =
-    DSTScheduler.reset()
+  def advance(duration: FiniteDuration)(using scheduler: DSTScheduler): Unit =
+    scheduler.advance(duration)
+  
+  /** Returns the current virtual time in milliseconds.
+    * This is a convenience method for use within withVirtualTime context.
+    */
+  def nowMillis(using scheduler: DSTScheduler): Long =
+    scheduler.nowMillis
+  
+  /** Creates a test context with virtual time control.
+    * 
+    * @param body The test code to execute with virtual time control.
+    * @return The result of the test body.
+    */
+  def withVirtualTime[T](body: (Async.Spawn, AsyncOperations, DSTScheduler) ?=> T): T =
+    val scheduler: DSTScheduler = new DSTScheduler
+    scheduler.drainAll()
+    scheduler.reset()
     given AsyncOperations = DSTAsyncOperations
     given DSTSupport.type = DSTSupport
-    given DSTSupport.Scheduler = DSTScheduler
+    given DSTSupport.Scheduler = scheduler
     Async.blocking:
       body
